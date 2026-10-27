@@ -70,7 +70,7 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
 .list { list-style: none; margin: 0; padding: 0; }
 .list a { display: block; text-decoration: none; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .list .t { display: block; font-size: 1.15rem; line-height: 1.3; overflow-wrap: anywhere; }
-.list .m { display: block; font-family: var(--font-util); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.list .m { display: block; font-family: var(--font-util); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
 .list a:hover .t { color: var(--accent); }
 .list a[aria-current="true"] .t { color: var(--accent); font-style: italic; }
 .empty { color: var(--muted); font-style: italic; padding: 12px 0; }
@@ -80,7 +80,7 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
   display: none; font-family: var(--font-util); font-size: 0.8rem; letter-spacing: 0.06em;
   text-transform: uppercase; text-decoration: none; color: var(--accent); margin-bottom: 24px;
 }
-.meta { font-family: var(--font-util); font-size: 0.76rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+.meta { font-family: var(--font-util); font-size: 0.76rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; overflow-wrap: anywhere; }
 .poem-title {
   font-family: var(--font-display); font-weight: 600; font-size: clamp(2rem, 5vw, 3.1rem);
   line-height: 1.1; margin: 0 0 36px; text-wrap: balance; overflow-wrap: anywhere;
@@ -110,10 +110,7 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
 .hint { font-family: var(--font-util); font-size: 0.72rem; color: var(--muted); margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .err { color: var(--danger); font-family: var(--font-util); font-size: 0.8rem; margin: 0; min-height: 1.2em; }
-
-.foot { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; }
-.foot .btn { border-color: transparent; color: var(--muted); padding: 6px 0; }
-.foot .btn:hover { background: transparent; color: var(--fg); }
+.trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 
 @media (max-width: 760px) {
   .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
@@ -141,10 +138,6 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
     </div>
     <article class="reader" id="reader" aria-live="polite"></article>
   </main>
-
-  <footer class="foot">
-    <a class="btn" id="login" href="#admin">Administrator</a>
-  </footer>
 </div>
 
 <script>
@@ -157,17 +150,13 @@ var reader = document.getElementById("reader");
 var qEl = document.getElementById("q");
 var countEl = document.getElementById("count");
 var addEl = document.getElementById("add");
-var loginEl = document.getElementById("login");
 
 var poems = [];
 var loaded = false;
 var failed = false;
-var isAdmin = false;
-var password = "";
 var editingId = null;
 var confirmDelete = false;
-
-try { password = sessionStorage.getItem("caiet-pass") || ""; } catch (e) { password = ""; }
+var deleteError = "";
 
 function el(tag, cls, text) {
   var n = document.createElement(tag);
@@ -183,20 +172,15 @@ function selected() {
   return poems.filter(function (x) { return x.id === id; })[0] || null;
 }
 function go(hash) { if (hashId() === hash) route(); else location.hash = hash; }
-function authHeaders() {
-  var h = { "content-type": "application/json" };
-  if (password) h.authorization = "Bearer " + password;
-  return h;
-}
+function metaText(p) { return [p.date, p.author].filter(Boolean).join(" · "); }
+function getAuthor() { try { return localStorage.getItem("caiet-autor") || ""; } catch (e) { return ""; } }
+function setAuthor(v) { try { localStorage.setItem("caiet-autor", v); } catch (e) {} }
 
 async function loadPoems() {
   try {
-    var r = await fetch(API, { headers: authHeaders(), cache: "no-store" });
+    var r = await fetch(API, { cache: "no-store" });
     if (!r.ok) throw new Error("http " + r.status);
-    var data = await r.json();
-    poems = data.poems || [];
-    isAdmin = !!data.admin;
-    if (!isAdmin && password) { password = ""; try { sessionStorage.removeItem("caiet-pass"); } catch (e) {} }
+    poems = (await r.json()).poems || [];
     failed = false;
   } catch (e) {
     failed = true;
@@ -208,8 +192,7 @@ function renderList() {
   var q = qEl.value.trim().toLowerCase();
   var cur = selected();
   listEl.textContent = "";
-  addEl.hidden = !isAdmin;
-  loginEl.textContent = isAdmin ? "Ieșire" : "Administrator";
+  addEl.hidden = !loaded || failed;
   countEl.textContent = loaded && !failed ? poems.length + (poems.length === 1 ? " poezie" : " poezii") : "";
 
   if (!loaded) { listEl.appendChild(el("li", "empty", "Se încarcă poeziile…")); return; }
@@ -226,7 +209,7 @@ function renderList() {
     var a = el("a");
     a.href = "#p-" + p.id;
     a.appendChild(el("span", "t", p.title));
-    if (p.date) a.appendChild(el("span", "m", p.date));
+    if (metaText(p)) a.appendChild(el("span", "m", metaText(p)));
     if (cur && p.id === cur.id) a.setAttribute("aria-current", "true");
     li.appendChild(a);
     listEl.appendChild(li);
@@ -248,38 +231,6 @@ function field(id, label, node) {
   return f;
 }
 
-function renderLogin() {
-  reader.textContent = "";
-  reader.appendChild(backLink());
-  reader.appendChild(el("p", "meta", "Administrator"));
-  var form = el("form", "form");
-  var pass = el("input"); pass.type = "password"; pass.autocomplete = "current-password";
-  form.appendChild(field("f-pass", "Parola", pass));
-  var err = el("p", "err"); err.setAttribute("role", "alert");
-  form.appendChild(err);
-  var actions = el("div", "actions");
-  var ok = el("button", "btn", "Intră"); ok.type = "submit";
-  actions.appendChild(ok);
-  form.appendChild(actions);
-  form.addEventListener("submit", async function (ev) {
-    ev.preventDefault();
-    if (!pass.value) { err.textContent = "Scrie parola."; return; }
-    ok.disabled = true;
-    password = pass.value;
-    await loadPoems();
-    if (isAdmin) {
-      try { sessionStorage.setItem("caiet-pass", password); } catch (e) {}
-      go("toate");
-    } else {
-      ok.disabled = false;
-      err.textContent = failed ? "Nu s-a putut contacta serverul." : "Parola nu este corectă.";
-      renderList();
-    }
-  });
-  reader.appendChild(form);
-  pass.focus();
-}
-
 function renderComposer(p) {
   reader.textContent = "";
   reader.appendChild(backLink());
@@ -288,16 +239,24 @@ function renderComposer(p) {
   var form = el("form", "form");
   var title = el("input", "big"); title.type = "text"; title.maxLength = 120; title.autocomplete = "off";
   title.value = p ? p.title : "";
+  var author = el("input"); author.type = "text"; author.maxLength = 60; author.autocomplete = "off";
+  author.value = p ? (p.author || "") : getAuthor();
   var date = el("input"); date.type = "text"; date.maxLength = 40; date.autocomplete = "off";
   var now = new Date();
   date.value = p ? (p.date || "") : MONTHS[now.getMonth()] + " " + now.getFullYear();
-  var text = el("textarea");
+  var text = el("textarea"); text.maxLength = 8000;
   text.value = p ? p.text : "";
   text.placeholder = "Scrie sau lipește poezia aici.";
 
+  var trap = el("div", "trap"); trap.setAttribute("aria-hidden", "true");
+  var trapInput = el("input"); trapInput.type = "text"; trapInput.tabIndex = -1; trapInput.autocomplete = "off"; trapInput.name = "website";
+  trap.appendChild(trapInput);
+
   form.appendChild(field("f-title", "Titlu", title));
+  form.appendChild(field("f-author", "Autor", author));
   form.appendChild(field("f-date", "Data", date));
   form.appendChild(field("f-text", "Poezia", text));
+  form.appendChild(trap);
   form.appendChild(el("p", "hint", "Un rând gol desparte strofele."));
   var err = el("p", "err"); err.setAttribute("role", "alert");
   form.appendChild(err);
@@ -322,18 +281,23 @@ function renderComposer(p) {
     try {
       var r = await fetch(API, {
         method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ id: p ? p.id : undefined, title: t, date: date.value.trim(), text: body })
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: p ? p.id : undefined, title: t, author: author.value.trim(),
+          date: date.value.trim(), text: body, website: trapInput.value
+        })
       });
-      if (r.status === 401) { isAdmin = false; password = ""; throw new Error("auth"); }
+      if (r.status === 429) throw new Error("rate");
       if (!r.ok) throw new Error("http");
       var saved = (await r.json()).poem;
+      setAuthor(author.value.trim());
       await loadPoems();
       editingId = null;
       go("p-" + saved.id);
     } catch (e) {
       save.disabled = false;
-      err.textContent = e.message === "auth" ? "Sesiunea a expirat. Intră din nou ca administrator."
+      err.textContent = e.message === "rate"
+        ? "Ai trimis prea repede. Așteaptă un minut și încearcă din nou."
         : "Nu s-a putut salva. Încearcă din nou.";
     }
   });
@@ -345,44 +309,47 @@ function renderReader(p) {
   if (!p) {
     var msg = !loaded ? "Se încarcă poeziile…"
       : failed ? "Poeziile nu pot fi încărcate acum."
-      : isAdmin ? "Caietul e gol. Apasă „Adaugă poezie” ca să scrii prima."
-      : "Caietul e gol deocamdată.";
+      : "Caietul e gol. Apasă „Adaugă poezie” ca să scrii prima.";
     reader.appendChild(el("p", "empty", msg));
     return;
   }
   var idx = poems.indexOf(p);
   reader.appendChild(backLink());
-  if (p.date) reader.appendChild(el("p", "meta", p.date));
+  if (metaText(p)) reader.appendChild(el("p", "meta", metaText(p)));
   reader.appendChild(el("h2", "poem-title", p.title));
 
-  if (isAdmin) {
-    var tools = el("div", "tools");
-    var ed = el("button", "btn ghost", "Editează"); ed.type = "button";
-    ed.addEventListener("click", function () { editingId = p.id; confirmDelete = false; render(); window.scrollTo(0, 0); });
-    tools.appendChild(ed);
-    if (!confirmDelete) {
-      var del = el("button", "btn ghost", "Șterge"); del.type = "button";
-      del.addEventListener("click", function () { confirmDelete = true; render(); });
-      tools.appendChild(del);
-    } else {
-      tools.appendChild(el("span", "ask", "Ștergi definitiv această poezie?"));
-      var yes = el("button", "btn warn", "Da, șterge"); yes.type = "button";
-      yes.addEventListener("click", async function () {
-        yes.disabled = true;
-        try {
-          var r = await fetch(API + "?id=" + encodeURIComponent(p.id), { method: "DELETE", headers: authHeaders() });
-          if (!r.ok) throw new Error("http");
-          confirmDelete = false;
-          await loadPoems();
-          go("toate");
-        } catch (e) { yes.disabled = false; }
-      });
-      var no = el("button", "btn ghost", "Renunț"); no.type = "button";
-      no.addEventListener("click", function () { confirmDelete = false; render(); });
-      tools.appendChild(yes); tools.appendChild(no);
-    }
-    reader.appendChild(tools);
+  var tools = el("div", "tools");
+  var ed = el("button", "btn ghost", "Editează"); ed.type = "button";
+  ed.addEventListener("click", function () { editingId = p.id; confirmDelete = false; deleteError = ""; render(); window.scrollTo(0, 0); });
+  tools.appendChild(ed);
+  if (!confirmDelete) {
+    var del = el("button", "btn ghost", "Șterge"); del.type = "button";
+    del.addEventListener("click", function () { confirmDelete = true; deleteError = ""; render(); });
+    tools.appendChild(del);
+  } else {
+    tools.appendChild(el("span", "ask", "Ștergi definitiv această poezie?"));
+    var yes = el("button", "btn warn", "Da, șterge"); yes.type = "button";
+    yes.addEventListener("click", async function () {
+      yes.disabled = true;
+      try {
+        var r = await fetch(API + "?id=" + encodeURIComponent(p.id), { method: "DELETE" });
+        if (r.status === 429) throw new Error("rate");
+        if (!r.ok) throw new Error("http");
+        confirmDelete = false;
+        await loadPoems();
+        go("toate");
+      } catch (e) {
+        confirmDelete = false;
+        deleteError = e.message === "rate" ? "Prea repede. Încearcă din nou peste câteva secunde." : "Nu s-a putut șterge. Încearcă din nou.";
+        render();
+      }
+    });
+    var no = el("button", "btn ghost", "Renunț"); no.type = "button";
+    no.addEventListener("click", function () { confirmDelete = false; render(); });
+    tools.appendChild(yes); tools.appendChild(no);
   }
+  if (deleteError) tools.appendChild(el("span", "ask", deleteError));
+  reader.appendChild(tools);
 
   var body = el("div", "poem");
   p.text.split(/\n\s*\n/).forEach(function (st) {
@@ -412,31 +379,24 @@ function renderReader(p) {
 function render() {
   var h = hashId();
   var cur = selected();
-  var composing = (h === "scrie" && isAdmin) || (editingId !== null && cur && cur.id === editingId);
-  var logging = h === "admin" && !isAdmin;
-  main.dataset.view = (composing || logging || cur) ? "poem" : "list";
+  var ready = loaded && !failed;
+  var adding = h === "scrie" && ready;
+  var editing = editingId !== null && cur && cur.id === editingId;
+  main.dataset.view = (adding || editing || cur) ? "poem" : "list";
   renderList();
-  if (logging) renderLogin();
-  else if (h === "scrie" && isAdmin) renderComposer(null);
-  else if (composing) renderComposer(cur);
+  if (adding) renderComposer(null);
+  else if (editing) renderComposer(cur);
   else renderReader(cur || poems[0] || null);
 }
 
 function route() {
   editingId = null;
   confirmDelete = false;
+  deleteError = "";
   render();
-  if (selected() || hashId() === "scrie" || hashId() === "admin") window.scrollTo(0, 0);
+  if (selected() || hashId() === "scrie") window.scrollTo(0, 0);
 }
 
-loginEl.addEventListener("click", function (ev) {
-  if (isAdmin) {
-    ev.preventDefault();
-    isAdmin = false; password = "";
-    try { sessionStorage.removeItem("caiet-pass"); } catch (e) {}
-    go("toate");
-  }
-});
 qEl.addEventListener("input", renderList);
 window.addEventListener("hashchange", route);
 

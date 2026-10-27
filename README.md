@@ -4,18 +4,25 @@
 caiet-worker/
   public/index.html     site-ul
   src/worker.js         salvarea poeziilor (/api/poems)
-  wrangler.toml         configurare
+  wrangler.toml         configurare (conține ID-ul KV)
 ```
 
-## Pași
+## Cum funcționează
 
-1. În Cloudflare: Storage & Databases, apoi KV, apoi Create. Numește-l `poezii`.
-   Copiază `ID`-ul lui și pune-l în `wrangler.toml`, în locul textului `PUNE_AICI_ID_UL`.
-2. Pune fișierele în repository-ul GitHub (înlocuiește tot ce era acolo, șterge folderul `functions`).
-3. În Cloudflare, la ecranul „Set up your application", lasă comanda `npx wrangler deploy` și apasă Deploy.
-4. După primul deploy: Workers & Pages, apoi `caiet-de-poezii`, apoi Settings, apoi Variables and Secrets, apoi Add.
-   Tip: Secret. Nume: `ADMIN_PASSWORD`. Valoare: parola ta. Salvează și apasă Deploy.
+Oricine deschide site-ul poate adăuga, edita și șterge poezii. Nu există parolă.
 
-## Folosire
+Protecții:
+- o poezie nouă pe minut de la aceeași adresă;
+- edit și ștergere la câteva secunde distanță;
+- serverul păstrează în KV, sub cheia `poems-backup`, o copie a stării de dinainte de ultima modificare.
 
-Jos, în dreapta paginii, apeși „Administrator" și scrii parola. Apoi poți adăuga, edita și șterge poezii.
+## Dacă cineva șterge poezii
+
+În Cloudflare: Storage & databases, apoi Workers KV, apoi `poezii`, apoi KV Pairs.
+Copiază conținutul cheii `poems-backup` și pune-l în cheia `poems` (Edit).
+Se poate reface doar ultima stare, nu mai multe modificări în urmă.
+
+## Publicare
+
+Fișierele sunt în repository-ul GitHub conectat la Cloudflare.
+Orice commit nou pornește singur un build și publică site-ul.
