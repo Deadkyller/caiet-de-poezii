@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caiet de poezii</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+:root {
+  --bg: #eceff3;
+  --fg: #1b2330;
+  --muted: #667085;
+  --line: #cfd6df;
+  --accent: #3b57a6;
+  --danger: #a3361f;
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-util: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11151b; --fg: #e4e8ee; --muted: #8d97a7; --line: #2a323d;
+    --accent: #93abea; --danger: #ff9b85; color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 1.125rem;
+  padding: 28px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; }
+a { color: inherit; }
+a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.top {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 12px 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); margin-bottom: 32px;
+}
+.brand { font-family: var(--font-display); font-style: italic; font-weight: 400; font-size: 2.1rem; margin: 0; text-wrap: balance; }
+.count { font-family: var(--font-util); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+.shell { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 56px; }
+
+.index-col { position: sticky; top: 16px; align-self: start; min-width: 0; }
+.btn {
+  display: inline-block; font-family: var(--font-util); font-size: 0.78rem; letter-spacing: 0.06em;
+  text-transform: uppercase; text-decoration: none; color: var(--accent); background: transparent;
+  border: 1px solid var(--accent); padding: 9px 14px; cursor: pointer;
+}
+.btn:hover { background: var(--accent); color: var(--bg); }
+.btn.ghost { border-color: var(--line); color: var(--muted); }
+.btn.ghost:hover { border-color: var(--fg); background: transparent; color: var(--fg); }
+.btn.warn { border-color: var(--danger); color: var(--danger); }
+.btn.warn:hover { background: var(--danger); color: var(--bg); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+#add { margin-bottom: 16px; }
+
+.search {
+  width: 100%; font: inherit; font-size: 1rem; color: var(--fg);
+  background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 8px 0; margin-bottom: 8px;
+}
+.search::placeholder { color: var(--muted); }
+.list { list-style: none; margin: 0; padding: 0; }
+.list a { display: block; text-decoration: none; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.list .t { display: block; font-size: 1.15rem; line-height: 1.3; overflow-wrap: anywhere; }
+.list .m { display: block; font-family: var(--font-util); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+.list a:hover .t { color: var(--accent); }
+.list a[aria-current="true"] .t { color: var(--accent); font-style: italic; }
+.empty { color: var(--muted); font-style: italic; padding: 12px 0; }
+
+.reader { min-width: 0; }
+.back {
+  display: none; font-family: var(--font-util); font-size: 0.8rem; letter-spacing: 0.06em;
+  text-transform: uppercase; text-decoration: none; color: var(--accent); margin-bottom: 24px;
+}
+.meta { font-family: var(--font-util); font-size: 0.76rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; overflow-wrap: anywhere; }
+.poem-title {
+  font-family: var(--font-display); font-weight: 600; font-size: clamp(2rem, 5vw, 3.1rem);
+  line-height: 1.1; margin: 0 0 36px; text-wrap: balance; overflow-wrap: anywhere;
+}
+.poem { font-size: 1.35rem; line-height: 1.7; max-width: 30em; }
+.stanza { margin: 0 0 1.7em; }
+.stanza span { display: block; padding-left: 1.6em; text-indent: -1.6em; overflow-wrap: anywhere; }
+.pager {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px;
+  margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); max-width: 30em;
+}
+.pager a { text-decoration: none; font-style: italic; color: var(--accent); }
+.pager .dim { color: var(--muted); font-style: normal; font-family: var(--font-util); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; display: block; }
+
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 24px; }
+.tools .ask { font-family: var(--font-util); font-size: 0.78rem; color: var(--danger); }
+
+.form { max-width: 34em; display: grid; gap: 22px; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field label { font-family: var(--font-util); font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.field input, .field textarea {
+  width: 100%; font-family: var(--font-body); font-size: 1.15rem; line-height: 1.6;
+  color: var(--fg); background: transparent; border: 1px solid var(--line); padding: 10px 12px;
+}
+.field input.big { font-family: var(--font-display); font-size: 1.6rem; font-weight: 600; }
+.field textarea { min-height: 20rem; resize: vertical; }
+.hint { font-family: var(--font-util); font-size: 0.72rem; color: var(--muted); margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.err { color: var(--danger); font-family: var(--font-util); font-size: 0.8rem; margin: 0; min-height: 1.2em; }
+.trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+.field select {
+  width: 100%; font-family: var(--font-body); font-size: 1.05rem;
+  color: var(--fg); background: transparent; border: 1px solid var(--line); padding: 10px 12px;
+}
+.field input[type="file"] { font-family: var(--font-util); font-size: 0.8rem; padding: 8px; }
+.imgprev img { display: block; max-width: 100%; max-height: 180px; border: 1px solid var(--line); }
+.imgprev:empty { display: none; }
+.field .btn { justify-self: start; }
+
+.stage { margin: 0 0 8px; }
+.stage.has-image {
+  padding: clamp(24px, 5vw, 56px);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  min-height: 24rem;
+}
+.stage.has-image.tone-light { color: #ffffff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55); }
+.stage.has-image.tone-light .meta { color: rgba(255, 255, 255, 0.85); }
+.stage.has-image.tone-dark { color: #10151d; text-shadow: 0 1px 2px rgba(255, 255, 255, 0.45); }
+.stage.has-image.tone-dark .meta { color: rgba(16, 21, 29, 0.75); }
+
+@media (max-width: 760px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .index-col { position: static; }
+  main[data-view="list"] .reader { display: none; }
+  main[data-view="poem"] .index-col { display: none; }
+  .back { display: inline-block; }
+  .brand { font-size: 1.7rem; }
+  .poem { font-size: 1.2rem; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1 class="brand">Caiet de poezii</h1>
+    <span class="count" id="count"></span>
+  </header>
+
+  <main class="shell" id="main" data-view="list">
+    <div class="index-col">
+      <a class="btn" id="add" href="#scrie" hidden>Adaugă poezie</a>
+      <input class="search" id="q" type="search" placeholder="Caută o poezie" aria-label="Caută o poezie">
+      <ol class="list" id="list"></ol>
+    </div>
+    <article class="reader" id="reader" aria-live="polite"></article>
+  </main>
+</div>
+
+<script>
+var API = "/api/poems";
+var MONTHS = ["ianuarie","februarie","martie","aprilie","mai","iunie","iulie","august","septembrie","octombrie","noiembrie","decembrie"];
+
+var main = document.getElementById("main");
+var listEl = document.getElementById("list");
+var reader = document.getElementById("reader");
+var qEl = document.getElementById("q");
+var countEl = document.getElementById("count");
+var addEl = document.getElementById("add");
+
+var poems = [];
+var loaded = false;
+var failed = false;
+var editingId = null;
+var confirmDelete = false;
+var deleteError = "";
+
+function el(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+function hashId() { return location.hash.slice(1); }
+function selected() {
+  var h = hashId();
+  if (h.indexOf("p-") !== 0) return null;
+  var id = h.slice(2);
+  return poems.filter(function (x) { return x.id === id; })[0] || null;
+}
+function go(hash) { if (hashId() === hash) route(); else location.hash = hash; }
+function metaText(p) { return [p.date, p.author].filter(Boolean).join(" · "); }
+function getAuthor() { try { return localStorage.getItem("caiet-autor") || ""; } catch (e) { return ""; } }
+function setAuthor(v) { try { localStorage.setItem("caiet-autor", v); } catch (e) {} }
+
+async function loadPoems() {
+  try {
+    var r = await fetch(API, { cache: "no-store" });
+    if (!r.ok) throw new Error("http " + r.status);
+    poems = (await r.json()).poems || [];
+    failed = false;
+  } catch (e) {
+    failed = true;
+  }
+  loaded = true;
+}
+
+function renderList() {
+  var q = qEl.value.trim().toLowerCase();
+  var cur = selected();
+  listEl.textContent = "";
+  addEl.hidden = !loaded || failed;
+  countEl.textContent = loaded && !failed ? poems.length + (poems.length === 1 ? " poezie" : " poezii") : "";
+
+  if (!loaded) { listEl.appendChild(el("li", "empty", "Se încarcă poeziile…")); return; }
+  if (failed) { listEl.appendChild(el("li", "empty", "Poeziile nu pot fi încărcate acum.")); return; }
+  var found = poems.filter(function (p) {
+    return !q || p.title.toLowerCase().indexOf(q) > -1 || p.text.toLowerCase().indexOf(q) > -1;
+  });
+  if (!found.length) {
+    listEl.appendChild(el("li", "empty", poems.length ? "Nicio poezie găsită." : "Nicio poezie încă."));
+    return;
+  }
+  found.forEach(function (p) {
+    var li = document.createElement("li");
+    var a = el("a");
+    a.href = "#p-" + p.id;
+    a.appendChild(el("span", "t", p.title));
+    if (metaText(p)) a.appendChild(el("span", "m", metaText(p)));
+    if (cur && p.id === cur.id) a.setAttribute("aria-current", "true");
+    li.appendChild(a);
+    listEl.appendChild(li);
+  });
+}
+
+function backLink() {
+  var back = el("a", "back", "← Toate poeziile");
+  back.href = "#toate";
+  return back;
+}
+
+function field(id, label, node) {
+  var f = el("div", "field");
+  var l = el("label", null, label);
+  l.htmlFor = id;
+  node.id = id;
+  f.appendChild(l); f.appendChild(node);
+  return f;
+}
+
+function encodeJpeg(canvas, quality) {
+  return new Promise(function (resolve, reject) {
+    canvas.toBlob(function (b) {
+      if (!b) { reject(new Error("read")); return; }
+      if (b.size > 1400 * 1024 && quality > 0.5) { resolve(encodeJpeg(canvas, quality - 0.15)); return; }
+      resolve(b);
+    }, "image/jpeg", quality);
+  });
+}
+
+function resizeToJpeg(file) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth, h = img.naturalHeight;
+      URL.revokeObjectURL(url);
+      if (!w || !h) { reject(new Error("read")); return; }
+      var s = Math.min(1, 1600 / Math.max(w, h));
+      var c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(w * s));
+      c.height = Math.max(1, Math.round(h * s));
+      var ctx = c.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      encodeJpeg(c, 0.82).then(resolve, reject);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("read")); };
+    img.src = url;
+  });
+}
+
+function imageUrl(id) { return "/api/image?id=" + encodeURIComponent(id); }
+
+function renderComposer(p) {
+  reader.textContent = "";
+  reader.appendChild(backLink());
+  reader.appendChild(el("p", "meta", p ? "Editezi poezia" : "Poezie nouă"));
+
+  var imageId = p && p.image ? p.image : "";
+  var uploading = false;
+
+  var form = el("form", "form");
+  var title = el("input", "big"); title.type = "text"; title.maxLength = 120; title.autocomplete = "off";
+  title.value = p ? p.title : "";
+  var author = el("input"); author.type = "text"; author.maxLength = 60; author.autocomplete = "off";
+  author.value = p ? (p.author || "") : getAuthor();
+  var date = el("input"); date.type = "text"; date.maxLength = 40; date.autocomplete = "off";
+  var now = new Date();
+  date.value = p ? (p.date || "") : MONTHS[now.getMonth()] + " " + now.getFullYear();
+  var text = el("textarea"); text.maxLength = 8000;
+  text.value = p ? p.text : "";
+  text.placeholder = "Scrie sau lipește poezia aici.";
+
+  var fileIn = el("input"); fileIn.type = "file"; fileIn.accept = "image/*";
+  var preview = el("div", "imgprev");
+  var imgStatus = el("p", "hint");
+  var removeBtn = el("button", "btn ghost", "Scoate imaginea"); removeBtn.type = "button";
+  var tone = el("select");
+  [["light", "Alb (pentru imagini închise)"], ["dark", "Negru (pentru imagini deschise)"]].forEach(function (o) {
+    var op = el("option", null, o[1]); op.value = o[0]; tone.appendChild(op);
+  });
+  tone.value = p && p.tone === "dark" ? "dark" : "light";
+
+  function showPreview(src) {
+    preview.textContent = "";
+    if (src) {
+      var im = el("img"); im.src = src; im.alt = "Previzualizare imagine de fundal";
+      preview.appendChild(im);
+    }
+    removeBtn.hidden = !src;
+  }
+  showPreview(imageId ? imageUrl(imageId) : "");
+
+  var trap = el("div", "trap"); trap.setAttribute("aria-hidden", "true");
+  var trapInput = el("input"); trapInput.type = "text"; trapInput.tabIndex = -1; trapInput.autocomplete = "off"; trapInput.name = "website";
+  trap.appendChild(trapInput);
+
+  var imgField = el("div", "field");
+  var imgLabel = el("label", null, "Imagine de fundal (opțional)"); imgLabel.htmlFor = "f-image";
+  fileIn.id = "f-image";
+  imgField.appendChild(imgLabel);
+  imgField.appendChild(fileIn);
+  imgField.appendChild(preview);
+  imgField.appendChild(removeBtn);
+  imgField.appendChild(imgStatus);
+
+  form.appendChild(field("f-title", "Titlu", title));
+  form.appendChild(field("f-author", "Autor", author));
+  form.appendChild(field("f-date", "Data", date));
+  form.appendChild(field("f-text", "Poezia", text));
+  form.appendChild(imgField);
+  form.appendChild(field("f-tone", "Culoarea textului peste imagine", tone));
+  form.appendChild(trap);
+  form.appendChild(el("p", "hint", "Un rând gol desparte strofele."));
+  var err = el("p", "err"); err.setAttribute("role", "alert");
+  form.appendChild(err);
+
+  var actions = el("div", "actions");
+  var save = el("button", "btn", "Publică"); save.type = "submit";
+  var cancel = el("button", "btn ghost", "Renunț"); cancel.type = "button";
+  actions.appendChild(save); actions.appendChild(cancel);
+  form.appendChild(actions);
+
+  removeBtn.addEventListener("click", function () {
+    imageId = "";
+    showPreview("");
+    imgStatus.textContent = "";
+  });
+
+  fileIn.addEventListener("change", async function () {
+    var f = fileIn.files && fileIn.files[0];
+    if (!f) return;
+    err.textContent = "";
+    uploading = true; save.disabled = true;
+    imgStatus.textContent = "Se pregătește imaginea…";
+    try {
+      var blob = await resizeToJpeg(f);
+      imgStatus.textContent = "Se încarcă imaginea…";
+      var r = await fetch("/api/image", { method: "POST", headers: { "content-type": "image/jpeg" }, body: blob });
+      if (r.status === 429) throw new Error("rate");
+      if (!r.ok) throw new Error("http");
+      imageId = (await r.json()).id;
+      showPreview(URL.createObjectURL(blob));
+      imgStatus.textContent = "Imaginea e gata.";
+    } catch (e) {
+      imgStatus.textContent = "";
+      err.textContent = e.message === "read" ? "Imaginea nu poate fi citită. Alege un JPG, PNG sau WebP."
+        : e.message === "rate" ? "Prea repede. Așteaptă câteva secunde și încearcă din nou."
+        : "Imaginea nu s-a putut încărca.";
+    }
+    uploading = false; save.disabled = false; fileIn.value = "";
+  });
+
+  cancel.addEventListener("click", function () {
+    editingId = null;
+    if (p) go("p-" + p.id); else go("toate");
+  });
+
+  form.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    if (uploading) return;
+    var t = title.value.trim(), body = text.value.replace(/\s+$/, "");
+    if (!t || !body.trim()) { err.textContent = "Completează titlul și poezia."; return; }
+    err.textContent = "";
+    save.disabled = true;
+    try {
+      var r = await fetch(API, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: p ? p.id : undefined, title: t, author: author.value.trim(),
+          date: date.value.trim(), text: body, image: imageId, tone: tone.value,
+          website: trapInput.value
+        })
+      });
+      if (r.status === 429) throw new Error("rate");
+      if (!r.ok) {
+        var j = {};
+        try { j = await r.json(); } catch (x) {}
+        throw new Error(j.error === "imaginea nu mai exista" ? "img" : "http");
+      }
+      var saved = (await r.json()).poem;
+      setAuthor(author.value.trim());
+      await loadPoems();
+      editingId = null;
+      go("p-" + saved.id);
+    } catch (e) {
+      save.disabled = false;
+      err.textContent = e.message === "rate" ? "Ai trimis prea repede. Așteaptă un minut și încearcă din nou."
+        : e.message === "img" ? "Imaginea a expirat. Alege-o din nou."
+        : "Nu s-a putut salva. Încearcă din nou.";
+    }
+  });
+  reader.appendChild(form);
+}
+
+function renderReader(p) {
+  reader.textContent = "";
+  if (!p) {
+    var msg = !loaded ? "Se încarcă poeziile…"
+      : failed ? "Poeziile nu pot fi încărcate acum."
+      : "Caietul e gol. Apasă „Adaugă poezie” ca să scrii prima.";
+    reader.appendChild(el("p", "empty", msg));
+    return;
+  }
+  var idx = poems.indexOf(p);
+  reader.appendChild(backLink());
+
+  var tools = el("div", "tools");
+  var ed = el("button", "btn ghost", "Editează"); ed.type = "button";
+  ed.addEventListener("click", function () { editingId = p.id; confirmDelete = false; deleteError = ""; render(); window.scrollTo(0, 0); });
+  tools.appendChild(ed);
+  if (!confirmDelete) {
+    var del = el("button", "btn ghost", "Șterge"); del.type = "button";
+    del.addEventListener("click", function () { confirmDelete = true; deleteError = ""; render(); });
+    tools.appendChild(del);
+  } else {
+    tools.appendChild(el("span", "ask", "Ștergi definitiv această poezie?"));
+    var yes = el("button", "btn warn", "Da, șterge"); yes.type = "button";
+    yes.addEventListener("click", async function () {
+      yes.disabled = true;
+      try {
+        var r = await fetch(API + "?id=" + encodeURIComponent(p.id), { method: "DELETE" });
+        if (r.status === 429) throw new Error("rate");
+        if (!r.ok) throw new Error("http");
+        confirmDelete = false;
+        await loadPoems();
+        go("toate");
+      } catch (e) {
+        confirmDelete = false;
+        deleteError = e.message === "rate" ? "Prea repede. Încearcă din nou peste câteva secunde." : "Nu s-a putut șterge. Încearcă din nou.";
+        render();
+      }
+    });
+    var no = el("button", "btn ghost", "Renunț"); no.type = "button";
+    no.addEventListener("click", function () { confirmDelete = false; render(); });
+    tools.appendChild(yes); tools.appendChild(no);
+  }
+  if (deleteError) tools.appendChild(el("span", "ask", deleteError));
+  reader.appendChild(tools);
+
+  var stage = el("div", "stage");
+  if (p.image) {
+    var dark = p.tone === "dark";
+    var scrim = dark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)";
+    var url = imageUrl(p.image);
+    stage.classList.add("has-image", dark ? "tone-dark" : "tone-light");
+    stage.style.backgroundImage = "linear-gradient(" + scrim + "," + scrim + "), url(\"" + url + "\")";
+    var probe = new Image();
+    probe.onerror = function () {
+      stage.classList.remove("has-image", "tone-dark", "tone-light");
+      stage.style.backgroundImage = "";
+    };
+    probe.src = url;
+  }
+  if (metaText(p)) stage.appendChild(el("p", "meta", metaText(p)));
+  stage.appendChild(el("h2", "poem-title", p.title));
+
+  var body = el("div", "poem");
+  p.text.split(/\n\s*\n/).forEach(function (st) {
+    var d = el("div", "stanza");
+    st.split("\n").forEach(function (line) { d.appendChild(el("span", null, line)); });
+    body.appendChild(d);
+  });
+  stage.appendChild(body);
+  reader.appendChild(stage);
+
+  var pager = el("nav", "pager");
+  pager.setAttribute("aria-label", "Poezii vecine");
+  [[poems[idx - 1], "Mai nouă"], [poems[idx + 1], "Mai veche"]].forEach(function (pair, i) {
+    var box = el("div");
+    if (pair[0]) {
+      var a = el("a");
+      a.href = "#p-" + pair[0].id;
+      a.appendChild(el("span", "dim", pair[1]));
+      a.appendChild(document.createTextNode(pair[0].title));
+      box.appendChild(a);
+    }
+    if (i === 1) box.style.textAlign = "right";
+    pager.appendChild(box);
+  });
+  reader.appendChild(pager);
+}
+
+function render() {
+  var h = hashId();
+  var cur = selected();
+  var ready = loaded && !failed;
+  var adding = h === "scrie" && ready;
+  var editing = editingId !== null && cur && cur.id === editingId;
+  main.dataset.view = (adding || editing || cur) ? "poem" : "list";
+  renderList();
+  if (adding) renderComposer(null);
+  else if (editing) renderComposer(cur);
+  else renderReader(cur || poems[0] || null);
+}
+
+function route() {
+  editingId = null;
+  confirmDelete = false;
+  deleteError = "";
+  render();
+  if (selected() || hashId() === "scrie") window.scrollTo(0, 0);
+}
+
+qEl.addEventListener("input", renderList);
+window.addEventListener("hashchange", route);
+
+render();
+loadPoems().then(route);
+</script>
+</body>
+</html>
