@@ -95,7 +95,7 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
 .pager a { text-decoration: none; font-style: italic; color: var(--accent); }
 .pager .dim { color: var(--muted); font-style: normal; font-family: var(--font-util); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; display: block; }
 
-.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -12px 0 32px; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 24px; }
 .tools .ask { font-family: var(--font-util); font-size: 0.78rem; color: var(--danger); }
 
 .form { max-width: 34em; display: grid; gap: 22px; }
@@ -111,6 +111,28 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
 .actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .err { color: var(--danger); font-family: var(--font-util); font-size: 0.8rem; margin: 0; min-height: 1.2em; }
 .trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+.field select {
+  width: 100%; font-family: var(--font-body); font-size: 1.05rem;
+  color: var(--fg); background: transparent; border: 1px solid var(--line); padding: 10px 12px;
+}
+.field input[type="file"] { font-family: var(--font-util); font-size: 0.8rem; padding: 8px; }
+.imgprev img { display: block; max-width: 100%; max-height: 180px; border: 1px solid var(--line); }
+.imgprev:empty { display: none; }
+.field .btn { justify-self: start; }
+
+.stage { margin: 0 0 8px; }
+.stage.has-image {
+  padding: clamp(24px, 5vw, 56px);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  min-height: 24rem;
+}
+.stage.has-image.tone-light { color: #ffffff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55); }
+.stage.has-image.tone-light .meta { color: rgba(255, 255, 255, 0.85); }
+.stage.has-image.tone-dark { color: #10151d; text-shadow: 0 1px 2px rgba(255, 255, 255, 0.45); }
+.stage.has-image.tone-dark .meta { color: rgba(16, 21, 29, 0.75); }
 
 @media (max-width: 760px) {
   .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
@@ -231,10 +253,48 @@ function field(id, label, node) {
   return f;
 }
 
+function encodeJpeg(canvas, quality) {
+  return new Promise(function (resolve, reject) {
+    canvas.toBlob(function (b) {
+      if (!b) { reject(new Error("read")); return; }
+      if (b.size > 1400 * 1024 && quality > 0.5) { resolve(encodeJpeg(canvas, quality - 0.15)); return; }
+      resolve(b);
+    }, "image/jpeg", quality);
+  });
+}
+
+function resizeToJpeg(file) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth, h = img.naturalHeight;
+      URL.revokeObjectURL(url);
+      if (!w || !h) { reject(new Error("read")); return; }
+      var s = Math.min(1, 1600 / Math.max(w, h));
+      var c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(w * s));
+      c.height = Math.max(1, Math.round(h * s));
+      var ctx = c.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      encodeJpeg(c, 0.82).then(resolve, reject);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("read")); };
+    img.src = url;
+  });
+}
+
+function imageUrl(id) { return "/api/image?id=" + encodeURIComponent(id); }
+
 function renderComposer(p) {
   reader.textContent = "";
   reader.appendChild(backLink());
   reader.appendChild(el("p", "meta", p ? "Editezi poezia" : "Poezie nouă"));
+
+  var imageId = p && p.image ? p.image : "";
+  var uploading = false;
 
   var form = el("form", "form");
   var title = el("input", "big"); title.type = "text"; title.maxLength = 120; title.autocomplete = "off";
@@ -248,14 +308,45 @@ function renderComposer(p) {
   text.value = p ? p.text : "";
   text.placeholder = "Scrie sau lipește poezia aici.";
 
+  var fileIn = el("input"); fileIn.type = "file"; fileIn.accept = "image/*";
+  var preview = el("div", "imgprev");
+  var imgStatus = el("p", "hint");
+  var removeBtn = el("button", "btn ghost", "Scoate imaginea"); removeBtn.type = "button";
+  var tone = el("select");
+  [["light", "Alb (pentru imagini închise)"], ["dark", "Negru (pentru imagini deschise)"]].forEach(function (o) {
+    var op = el("option", null, o[1]); op.value = o[0]; tone.appendChild(op);
+  });
+  tone.value = p && p.tone === "dark" ? "dark" : "light";
+
+  function showPreview(src) {
+    preview.textContent = "";
+    if (src) {
+      var im = el("img"); im.src = src; im.alt = "Previzualizare imagine de fundal";
+      preview.appendChild(im);
+    }
+    removeBtn.hidden = !src;
+  }
+  showPreview(imageId ? imageUrl(imageId) : "");
+
   var trap = el("div", "trap"); trap.setAttribute("aria-hidden", "true");
   var trapInput = el("input"); trapInput.type = "text"; trapInput.tabIndex = -1; trapInput.autocomplete = "off"; trapInput.name = "website";
   trap.appendChild(trapInput);
+
+  var imgField = el("div", "field");
+  var imgLabel = el("label", null, "Imagine de fundal (opțional)"); imgLabel.htmlFor = "f-image";
+  fileIn.id = "f-image";
+  imgField.appendChild(imgLabel);
+  imgField.appendChild(fileIn);
+  imgField.appendChild(preview);
+  imgField.appendChild(removeBtn);
+  imgField.appendChild(imgStatus);
 
   form.appendChild(field("f-title", "Titlu", title));
   form.appendChild(field("f-author", "Autor", author));
   form.appendChild(field("f-date", "Data", date));
   form.appendChild(field("f-text", "Poezia", text));
+  form.appendChild(imgField);
+  form.appendChild(field("f-tone", "Culoarea textului peste imagine", tone));
   form.appendChild(trap);
   form.appendChild(el("p", "hint", "Un rând gol desparte strofele."));
   var err = el("p", "err"); err.setAttribute("role", "alert");
@@ -267,6 +358,36 @@ function renderComposer(p) {
   actions.appendChild(save); actions.appendChild(cancel);
   form.appendChild(actions);
 
+  removeBtn.addEventListener("click", function () {
+    imageId = "";
+    showPreview("");
+    imgStatus.textContent = "";
+  });
+
+  fileIn.addEventListener("change", async function () {
+    var f = fileIn.files && fileIn.files[0];
+    if (!f) return;
+    err.textContent = "";
+    uploading = true; save.disabled = true;
+    imgStatus.textContent = "Se pregătește imaginea…";
+    try {
+      var blob = await resizeToJpeg(f);
+      imgStatus.textContent = "Se încarcă imaginea…";
+      var r = await fetch("/api/image", { method: "POST", headers: { "content-type": "image/jpeg" }, body: blob });
+      if (r.status === 429) throw new Error("rate");
+      if (!r.ok) throw new Error("http");
+      imageId = (await r.json()).id;
+      showPreview(URL.createObjectURL(blob));
+      imgStatus.textContent = "Imaginea e gata.";
+    } catch (e) {
+      imgStatus.textContent = "";
+      err.textContent = e.message === "read" ? "Imaginea nu poate fi citită. Alege un JPG, PNG sau WebP."
+        : e.message === "rate" ? "Prea repede. Așteaptă câteva secunde și încearcă din nou."
+        : "Imaginea nu s-a putut încărca.";
+    }
+    uploading = false; save.disabled = false; fileIn.value = "";
+  });
+
   cancel.addEventListener("click", function () {
     editingId = null;
     if (p) go("p-" + p.id); else go("toate");
@@ -274,6 +395,7 @@ function renderComposer(p) {
 
   form.addEventListener("submit", async function (ev) {
     ev.preventDefault();
+    if (uploading) return;
     var t = title.value.trim(), body = text.value.replace(/\s+$/, "");
     if (!t || !body.trim()) { err.textContent = "Completează titlul și poezia."; return; }
     err.textContent = "";
@@ -284,11 +406,16 @@ function renderComposer(p) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           id: p ? p.id : undefined, title: t, author: author.value.trim(),
-          date: date.value.trim(), text: body, website: trapInput.value
+          date: date.value.trim(), text: body, image: imageId, tone: tone.value,
+          website: trapInput.value
         })
       });
       if (r.status === 429) throw new Error("rate");
-      if (!r.ok) throw new Error("http");
+      if (!r.ok) {
+        var j = {};
+        try { j = await r.json(); } catch (x) {}
+        throw new Error(j.error === "imaginea nu mai exista" ? "img" : "http");
+      }
       var saved = (await r.json()).poem;
       setAuthor(author.value.trim());
       await loadPoems();
@@ -296,8 +423,8 @@ function renderComposer(p) {
       go("p-" + saved.id);
     } catch (e) {
       save.disabled = false;
-      err.textContent = e.message === "rate"
-        ? "Ai trimis prea repede. Așteaptă un minut și încearcă din nou."
+      err.textContent = e.message === "rate" ? "Ai trimis prea repede. Așteaptă un minut și încearcă din nou."
+        : e.message === "img" ? "Imaginea a expirat. Alege-o din nou."
         : "Nu s-a putut salva. Încearcă din nou.";
     }
   });
@@ -315,8 +442,6 @@ function renderReader(p) {
   }
   var idx = poems.indexOf(p);
   reader.appendChild(backLink());
-  if (metaText(p)) reader.appendChild(el("p", "meta", metaText(p)));
-  reader.appendChild(el("h2", "poem-title", p.title));
 
   var tools = el("div", "tools");
   var ed = el("button", "btn ghost", "Editează"); ed.type = "button";
@@ -351,13 +476,31 @@ function renderReader(p) {
   if (deleteError) tools.appendChild(el("span", "ask", deleteError));
   reader.appendChild(tools);
 
+  var stage = el("div", "stage");
+  if (p.image) {
+    var dark = p.tone === "dark";
+    var scrim = dark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)";
+    var url = imageUrl(p.image);
+    stage.classList.add("has-image", dark ? "tone-dark" : "tone-light");
+    stage.style.backgroundImage = "linear-gradient(" + scrim + "," + scrim + "), url(\"" + url + "\")";
+    var probe = new Image();
+    probe.onerror = function () {
+      stage.classList.remove("has-image", "tone-dark", "tone-light");
+      stage.style.backgroundImage = "";
+    };
+    probe.src = url;
+  }
+  if (metaText(p)) stage.appendChild(el("p", "meta", metaText(p)));
+  stage.appendChild(el("h2", "poem-title", p.title));
+
   var body = el("div", "poem");
   p.text.split(/\n\s*\n/).forEach(function (st) {
     var d = el("div", "stanza");
     st.split("\n").forEach(function (line) { d.appendChild(el("span", null, line)); });
     body.appendChild(d);
   });
-  reader.appendChild(body);
+  stage.appendChild(body);
+  reader.appendChild(stage);
 
   var pager = el("nav", "pager");
   pager.setAttribute("aria-label", "Poezii vecine");
