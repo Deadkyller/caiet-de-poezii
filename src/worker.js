@@ -1,6 +1,9 @@
 // Cloudflare Worker: serveste site-ul (folderul public) si API-urile:
 //   /api/poems  - lista, adaugare, editare, stergere de poezii
 //   /api/image  - incarcare si afisare imagini de fundal (JPEG)
+//   /api/books  - bibliografie
+//   /api/poets  - poeti preferati
+//   /api/marks  - semne de carte (cate unul pe poezie)
 // Totul se salveaza in KV (binding: POEMS).
 // Oricine poate adauga, edita si sterge. Protectii: limita de ritm per adresa,
 // o copie de siguranta a poeziilor ("poems-backup") si imagini limitate ca marime.
@@ -14,6 +17,7 @@ const CHANGE_WAIT_MS = 5 * 1000;   // edit/stergere la 5 secunde
 const IMAGE_WAIT_MS = 10 * 1000;   // o imagine la 10 secunde
 const UPLOAD_TTL = 24 * 60 * 60;   // imaginea neasociata unei poezii dispare dupa 24 de ore
 const RETIRE_TTL = 7 * 24 * 60 * 60; // imaginea unei poezii sterse mai ramane 7 zile
+const ADD_ITEM_WAIT_MS = 10 * 1000; // o intrare noua (carte, poet, semn) la 10 secunde
 const IMAGE_ID = /^[a-f0-9]{16}$/;
 
 function json(data, status) {
@@ -71,6 +75,88 @@ async function retireImage(env, id) {
   if (buf) await env.POEMS.put("img:" + id, buf, { expirationTtl: RETIRE_TTL });
 }
 
+function text(v, max) {
+  return String(v || "").replace(/\r\n/g, "\n").trim().slice(0, max);
+}
+
+function cleanBook(b) {
+  const title = text(b.title, 150);
+  if (!title) return null;
+  let link = text(b.link, 300);
+  if (link && !/^https?:\/\/\S+$/i.test(link)) link = "";
+  return { title, author: text(b.author, 80), year: text(b.year, 20), link, note: text(b.note, 1000) };
+}
+
+function cleanPoet(b) {
+  const name = text(b.name, 80);
+  if (!name) return null;
+  return { name, years: text(b.years, 40), note: text(b.note, 2000) };
+}
+
+function cleanMark(b) {
+  const poemId = String(b.poemId || "");
+  if (!/^[a-z0-9-]{1,40}$/i.test(poemId)) return null;
+  return { poemId, note: text(b.note, 300) };
+}
+
+const COLLECTIONS = {
+  books: { max: 500, clean: cleanBook },
+  poets: { max: 300, clean: cleanPoet },
+  marks: { max: 1000, clean: cleanMark, byPoem: true }, // id-ul semnului = id-ul poeziei
+};
+
+async function handleCollection(name, request, env) {
+  const cfg = COLLECTIONS[name];
+  const backupKey = name + "-backup";
+  const raw = (await env.POEMS.get(name)) || "[]";
+
+  if (request.method === "GET") {
+    return json({ items: parse(raw).sort((a, b) => (b.ts || 0) - (a.ts || 0)) });
+  }
+
+  if (request.method === "POST") {
+    let body;
+    try { body = await request.json(); } catch (e) { return json({ error: "cerere invalida" }, 400); }
+    body = body || {};
+    if (body.website) return json({ error: "cerere invalida" }, 400);
+    const fields = cfg.clean(body);
+    if (!fields) return json({ error: "date lipsa" }, 400);
+
+    const items = parse(raw);
+    const id = cfg.byPoem ? fields.poemId : String(body.id || "");
+    let item = id ? items.find((i) => i.id === id) : null;
+    if (cfg.byPoem) {
+      const poems = parse(await loadRaw(env));
+      if (!poems.some((p) => p.id === fields.poemId)) return json({ error: "poezia nu exista" }, 404);
+    } else if (id && !item) {
+      return json({ error: "nu exista" }, 404);
+    }
+
+    if (item) {
+      if (await tooSoon(env, request, "change:" + name, CHANGE_WAIT_MS)) return json({ error: "prea repede" }, 429);
+      Object.assign(item, fields);
+    } else {
+      if (items.length >= cfg.max) return json({ error: "lista este plina" }, 400);
+      if (await tooSoon(env, request, "add:" + name, ADD_ITEM_WAIT_MS)) return json({ error: "prea repede" }, 429);
+      item = { id: cfg.byPoem ? fields.poemId : crypto.randomUUID().slice(0, 8), ts: Date.now(), ...fields };
+      items.push(item);
+    }
+    await env.POEMS.put(backupKey, raw);
+    await env.POEMS.put(name, JSON.stringify(items));
+    return json({ item });
+  }
+
+  if (request.method === "DELETE") {
+    const id = new URL(request.url).searchParams.get("id");
+    if (await tooSoon(env, request, "change:" + name, CHANGE_WAIT_MS)) return json({ error: "prea repede" }, 429);
+    await env.POEMS.put(backupKey, raw);
+    await env.POEMS.put(name, JSON.stringify(parse(raw).filter((i) => i.id !== id)));
+    return json({ ok: true });
+  }
+
+  return json({ error: "metoda nepermisa" }, 405);
+}
+
 async function handlePoems(request, env) {
   if (request.method === "GET") {
     const poems = parse(await loadRaw(env)).sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -122,6 +208,13 @@ async function handlePoems(request, env) {
     await env.POEMS.put(BACKUP_KEY, raw);
     await env.POEMS.put(KEY, JSON.stringify(poems.filter((p) => p.id !== id)));
     if (gone && gone.image) await retireImage(env, gone.image);
+    // semnul de carte al poeziei sterse dispare
+    const marksRaw = await env.POEMS.get("marks");
+    if (marksRaw) {
+      const marks = parse(marksRaw);
+      const kept = marks.filter((m) => m.id !== id);
+      if (kept.length !== marks.length) await env.POEMS.put("marks", JSON.stringify(kept));
+    }
     return json({ ok: true });
   }
 
@@ -170,8 +263,10 @@ async function handleImage(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname === "/api/poems" || url.pathname === "/api/image") {
+    const coll = url.pathname.match(/^\/api\/(books|poets|marks)$/);
+    if (url.pathname === "/api/poems" || url.pathname === "/api/image" || coll) {
       if (!env.POEMS) return json({ error: "KV lipseste" }, 500);
+      if (coll) return handleCollection(coll[1], request, env);
       return url.pathname === "/api/poems" ? handlePoems(request, env) : handleImage(request, env, ctx);
     }
     return env.ASSETS.fetch(request);

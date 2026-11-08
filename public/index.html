@@ -27,6 +27,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   background: var(--bg);
@@ -134,6 +135,28 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
 .stage.has-image.tone-dark { color: #10151d; text-shadow: 0 1px 2px rgba(255, 255, 255, 0.45); }
 .stage.has-image.tone-dark .meta { color: rgba(16, 21, 29, 0.75); }
 
+.tabs { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: -14px 0 28px; }
+.tabs a {
+  font-family: var(--font-util); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase;
+  text-decoration: none; color: var(--muted); padding: 6px 0; border-bottom: 2px solid transparent;
+}
+.tabs a:hover { color: var(--fg); }
+.tabs a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+.sec { max-width: 40em; }
+.sec-title { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.8rem, 4.5vw, 2.6rem); line-height: 1.1; margin: 0 0 24px; }
+.sec > .btn { margin-bottom: 8px; }
+.card { padding: 20px 0; border-bottom: 1px solid var(--line); }
+.card-title { font-family: var(--font-display); font-weight: 600; font-size: 1.4rem; line-height: 1.25; margin: 0 0 6px; overflow-wrap: anywhere; }
+.card-title a { text-decoration: none; }
+.card-title a:hover { color: var(--accent); }
+.card .meta { margin: 0; }
+.card-note { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.card-link { display: block; font-family: var(--font-util); font-size: 0.8rem; color: var(--accent); overflow-wrap: anywhere; margin-top: 8px; }
+.card .tools { margin: 14px 0 0; }
+.card-form { padding: 20px 0 28px; border-bottom: 1px solid var(--line); }
+.field textarea.short { min-height: 8rem; }
+
 @media (max-width: 760px) {
   .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .index-col { position: static; }
@@ -151,6 +174,15 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
     <h1 class="brand">Caiet de poezii</h1>
     <span class="count" id="count"></span>
   </header>
+
+  <nav class="tabs" id="tabs" aria-label="Secțiuni">
+    <a href="#toate" data-s="poezii">Poezii</a>
+    <a href="#bibliografie" data-s="bibliografie">Bibliografie</a>
+    <a href="#poeti" data-s="poeti">Poeți preferați</a>
+    <a href="#semne" data-s="semne">Semne de carte</a>
+  </nav>
+
+  <section class="sec" id="sec" hidden></section>
 
   <main class="shell" id="main" data-view="list">
     <div class="index-col">
@@ -172,6 +204,8 @@ var reader = document.getElementById("reader");
 var qEl = document.getElementById("q");
 var countEl = document.getElementById("count");
 var addEl = document.getElementById("add");
+var sec = document.getElementById("sec");
+var tabsEl = document.getElementById("tabs");
 
 var poems = [];
 var loaded = false;
@@ -447,6 +481,26 @@ function renderReader(p) {
   var ed = el("button", "btn ghost", "Editează"); ed.type = "button";
   ed.addEventListener("click", function () { editingId = p.id; confirmDelete = false; deleteError = ""; render(); window.scrollTo(0, 0); });
   tools.appendChild(ed);
+  if (secState.semne === "ok") {
+    var marked = secData.semne.some(function (m) { return m.id === p.id; });
+    var mk = el("button", marked ? "btn" : "btn ghost", marked ? "Scoate semnul de carte" : "Pune semn de carte"); mk.type = "button";
+    mk.addEventListener("click", async function () {
+      mk.disabled = true;
+      try {
+        var r = marked
+          ? await fetch(MARKS_API + "?id=" + encodeURIComponent(p.id), { method: "DELETE" })
+          : await fetch(MARKS_API, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poemId: p.id, note: "", website: "" }) });
+        if (r.status === 429) throw new Error("rate");
+        if (!r.ok) throw new Error("http");
+        deleteError = "";
+        await loadSection("semne");
+      } catch (e) {
+        deleteError = e.message === "rate" ? "Prea repede. Încearcă din nou peste câteva secunde." : "Nu s-a putut salva semnul de carte.";
+      }
+      render();
+    });
+    tools.appendChild(mk);
+  }
   if (!confirmDelete) {
     var del = el("button", "btn ghost", "Șterge"); del.type = "button";
     del.addEventListener("click", function () { confirmDelete = true; deleteError = ""; render(); });
@@ -519,7 +573,264 @@ function renderReader(p) {
   reader.appendChild(pager);
 }
 
+var SECTION_NAMES = ["bibliografie", "poeti", "semne"];
+var MARKS_API = "/api/marks";
+var SECTIONS = {
+  bibliografie: {
+    api: "/api/books", title: "Bibliografie", add: "Adaugă o sursă", empty: "Nicio sursă încă.",
+    one: "sursă", many: "surse", sortKey: "title",
+    fields: [
+      { k: "title", label: "Titlu", max: 150, big: true, req: true },
+      { k: "author", label: "Autor", max: 80 },
+      { k: "year", label: "An", max: 20 },
+      { k: "link", label: "Link (opțional)", max: 300 },
+      { k: "note", label: "Notă", max: 1000, area: true }
+    ],
+    head: function (i) { return i.title; },
+    meta: function (i) { return [i.author, i.year].filter(Boolean).join(" · "); }
+  },
+  poeti: {
+    api: "/api/poets", title: "Poeți preferați", add: "Adaugă un poet", empty: "Niciun poet încă.",
+    one: "poet", many: "poeți", sortKey: "name",
+    fields: [
+      { k: "name", label: "Nume", max: 80, big: true, req: true },
+      { k: "years", label: "Ani (de ex. 1850–1889)", max: 40 },
+      { k: "note", label: "De ce îmi place", max: 2000, area: true }
+    ],
+    head: function (i) { return i.name; },
+    meta: function (i) { return i.years || ""; }
+  }
+};
+var secData = { bibliografie: [], poeti: [], semne: [] };
+var secState = { bibliografie: "idle", poeti: "idle", semne: "idle" };
+var secEditing = null;
+var secConfirm = null;
+var secError = "";
+
+async function loadSection(name) {
+  var api = name === "semne" ? MARKS_API : SECTIONS[name].api;
+  secState[name] = "loading";
+  try {
+    var r = await fetch(api, { cache: "no-store" });
+    if (!r.ok) throw new Error("http " + r.status);
+    secData[name] = (await r.json()).items || [];
+    secState[name] = "ok";
+  } catch (e) {
+    secState[name] = "failed";
+  }
+}
+
+function errText(e, fallback) {
+  return e && e.message === "rate" ? "Prea repede. Așteaptă câteva secunde și încearcă din nou." : fallback;
+}
+
+function itemForm(name, item) {
+  var cfg = SECTIONS[name];
+  var form = el("form", "form card-form");
+  var inputs = {};
+  cfg.fields.forEach(function (f) {
+    var inp = el(f.area ? "textarea" : "input", f.big ? "big" : null);
+    if (!f.area) inp.type = "text"; else inp.classList.add("short");
+    inp.maxLength = f.max; inp.autocomplete = "off";
+    inp.value = item ? (item[f.k] || "") : "";
+    inputs[f.k] = inp;
+    form.appendChild(field("s-" + name + "-" + f.k, f.label, inp));
+  });
+  var trap = el("div", "trap"); trap.setAttribute("aria-hidden", "true");
+  var trapInput = el("input"); trapInput.type = "text"; trapInput.tabIndex = -1; trapInput.autocomplete = "off"; trapInput.name = "website";
+  trap.appendChild(trapInput); form.appendChild(trap);
+  var err = el("p", "err"); err.setAttribute("role", "alert"); form.appendChild(err);
+  var actions = el("div", "actions");
+  var save = el("button", "btn", item ? "Salvează" : "Adaugă"); save.type = "submit";
+  var cancel = el("button", "btn ghost", "Renunț"); cancel.type = "button";
+  actions.appendChild(save); actions.appendChild(cancel); form.appendChild(actions);
+
+  cancel.addEventListener("click", function () { secEditing = null; render(); });
+  form.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    var body = { id: item ? item.id : undefined, website: trapInput.value };
+    cfg.fields.forEach(function (f) { body[f.k] = inputs[f.k].value.trim(); });
+    var req = cfg.fields.filter(function (f) { return f.req; })[0];
+    if (req && !body[req.k]) { err.textContent = "Completează câmpul „" + req.label + "”."; return; }
+    err.textContent = "";
+    save.disabled = true;
+    try {
+      var r = await fetch(cfg.api, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      if (r.status === 429) throw new Error("rate");
+      if (!r.ok) throw new Error("http");
+      await loadSection(name);
+      secEditing = null; secError = "";
+      render();
+    } catch (e) {
+      save.disabled = false;
+      err.textContent = errText(e, "Nu s-a putut salva. Încearcă din nou.");
+    }
+  });
+  return form;
+}
+
+async function removeItem(api, name, id) {
+  try {
+    var r = await fetch(api + "?id=" + encodeURIComponent(id), { method: "DELETE" });
+    if (r.status === 429) throw new Error("rate");
+    if (!r.ok) throw new Error("http");
+    secError = "";
+    await loadSection(name);
+  } catch (e) {
+    secError = errText(e, "Nu s-a putut șterge. Încearcă din nou.");
+  }
+  secConfirm = null;
+  render();
+}
+
+function cardTools(name, it, api, editLabel, confirmText, noConfirm) {
+  var tools = el("div", "tools");
+  var ed = el("button", "btn ghost", editLabel); ed.type = "button";
+  ed.addEventListener("click", function () { secEditing = it.id; secConfirm = null; secError = ""; render(); });
+  tools.appendChild(ed);
+  if (noConfirm || secConfirm !== it.id) {
+    var del = el("button", "btn ghost", noConfirm ? "Scoate semnul" : "Șterge"); del.type = "button";
+    del.addEventListener("click", function () {
+      if (noConfirm) { del.disabled = true; removeItem(api, name, it.id); return; }
+      secConfirm = it.id; secError = ""; render();
+    });
+    tools.appendChild(del);
+  } else {
+    tools.appendChild(el("span", "ask", confirmText));
+    var yes = el("button", "btn warn", "Da, șterge"); yes.type = "button";
+    yes.addEventListener("click", function () { yes.disabled = true; removeItem(api, name, it.id); });
+    var no = el("button", "btn ghost", "Renunț"); no.type = "button";
+    no.addEventListener("click", function () { secConfirm = null; render(); });
+    tools.appendChild(yes); tools.appendChild(no);
+  }
+  return tools;
+}
+
+function stateMessage(name) {
+  var st = secState[name];
+  if (st === "ok") return "";
+  return st === "failed" ? "Nu se poate încărca acum." : "Se încarcă…";
+}
+
+function renderCollection(name) {
+  var cfg = SECTIONS[name];
+  sec.appendChild(el("h2", "sec-title", cfg.title));
+  var msg = stateMessage(name);
+  if (msg) { sec.appendChild(el("p", "empty", msg)); countEl.textContent = ""; return; }
+  var items = secData[name].slice().sort(function (a, b) {
+    return String(a[cfg.sortKey]).localeCompare(String(b[cfg.sortKey]), "ro");
+  });
+  countEl.textContent = items.length + " " + (items.length === 1 ? cfg.one : cfg.many);
+
+  if (secEditing === "new") {
+    sec.appendChild(itemForm(name, null));
+  } else {
+    var add = el("button", "btn", cfg.add); add.type = "button";
+    add.addEventListener("click", function () { secEditing = "new"; secConfirm = null; secError = ""; render(); });
+    sec.appendChild(add);
+  }
+  if (secError) sec.appendChild(el("p", "err", secError));
+  if (!items.length && secEditing !== "new") sec.appendChild(el("p", "empty", cfg.empty));
+
+  items.forEach(function (it) {
+    if (secEditing === it.id) { sec.appendChild(itemForm(name, it)); return; }
+    var card = el("article", "card");
+    card.appendChild(el("h3", "card-title", cfg.head(it)));
+    var m = cfg.meta(it);
+    if (m) card.appendChild(el("p", "meta", m));
+    if (it.link && /^https?:\/\//i.test(it.link)) {
+      var a = el("a", "card-link", it.link);
+      a.href = it.link; a.target = "_blank"; a.rel = "noopener noreferrer";
+      card.appendChild(a);
+    }
+    if (it.note) card.appendChild(el("p", "card-note", it.note));
+    card.appendChild(cardTools(name, it, cfg.api, "Editează", "Ștergi definitiv?", false));
+    sec.appendChild(card);
+  });
+}
+
+function markForm(m) {
+  var form = el("form", "form card-form");
+  var note = el("input"); note.type = "text"; note.maxLength = 300; note.autocomplete = "off";
+  note.value = m.note || "";
+  note.placeholder = "de ex. unde am rămas, strofa preferată";
+  form.appendChild(field("s-mark-note", "Notă la semn", note));
+  var err = el("p", "err"); err.setAttribute("role", "alert"); form.appendChild(err);
+  var actions = el("div", "actions");
+  var save = el("button", "btn", "Salvează"); save.type = "submit";
+  var cancel = el("button", "btn ghost", "Renunț"); cancel.type = "button";
+  actions.appendChild(save); actions.appendChild(cancel); form.appendChild(actions);
+  cancel.addEventListener("click", function () { secEditing = null; render(); });
+  form.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    save.disabled = true;
+    try {
+      var r = await fetch(MARKS_API, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poemId: m.id, note: note.value.trim(), website: "" }) });
+      if (r.status === 429) throw new Error("rate");
+      if (!r.ok) throw new Error("http");
+      await loadSection("semne");
+      secEditing = null; secError = "";
+      render();
+    } catch (e) {
+      save.disabled = false;
+      err.textContent = errText(e, "Nu s-a putut salva. Încearcă din nou.");
+    }
+  });
+  return form;
+}
+
+function renderMarks() {
+  sec.appendChild(el("h2", "sec-title", "Semne de carte"));
+  var msg = stateMessage("semne") || (!loaded ? "Se încarcă…" : failed ? "Poeziile nu pot fi încărcate acum." : "");
+  if (msg) { sec.appendChild(el("p", "empty", msg)); countEl.textContent = ""; return; }
+  var rows = secData.semne.map(function (m) {
+    return { m: m, p: poems.filter(function (x) { return x.id === m.id; })[0] };
+  }).filter(function (x) { return x.p; }).sort(function (a, b) { return (b.m.ts || 0) - (a.m.ts || 0); });
+  countEl.textContent = rows.length + (rows.length === 1 ? " semn" : " semne");
+  if (secError) sec.appendChild(el("p", "err", secError));
+  if (!rows.length) {
+    sec.appendChild(el("p", "empty", "Niciun semn de carte. Deschide o poezie și apasă „Pune semn de carte”."));
+    return;
+  }
+  rows.forEach(function (x) {
+    if (secEditing === x.m.id) { sec.appendChild(markForm(x.m)); return; }
+    var card = el("article", "card");
+    var h = el("h3", "card-title");
+    var a = el("a", null, x.p.title); a.href = "#p-" + x.p.id;
+    h.appendChild(a); card.appendChild(h);
+    if (metaText(x.p)) card.appendChild(el("p", "meta", metaText(x.p)));
+    if (x.m.note) card.appendChild(el("p", "card-note", x.m.note));
+    card.appendChild(cardTools("semne", x.m, MARKS_API, x.m.note ? "Editează nota" : "Adaugă o notă", "", true));
+    sec.appendChild(card);
+  });
+}
+
+function currentSection() {
+  var h = hashId();
+  return SECTION_NAMES.indexOf(h) > -1 ? h : "poezii";
+}
+
+function setTabs(name) {
+  Array.prototype.forEach.call(tabsEl.querySelectorAll("a"), function (a) {
+    if (a.dataset.s === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+}
+
+function renderSection(name) {
+  sec.textContent = "";
+  if (secState[name] === "idle") loadSection(name).then(render);
+  if (name === "semne") renderMarks(); else renderCollection(name);
+}
+
 function render() {
+  var s = currentSection();
+  setTabs(s);
+  if (s !== "poezii") {
+    main.hidden = true; sec.hidden = false;
+    renderSection(s);
+    return;
+  }
+  main.hidden = false; sec.hidden = true;
   var h = hashId();
   var cur = selected();
   var ready = loaded && !failed;
@@ -536,6 +847,10 @@ function route() {
   editingId = null;
   confirmDelete = false;
   deleteError = "";
+  secEditing = null;
+  secConfirm = null;
+  secError = "";
+  if (currentSection() !== "poezii") secState[currentSection()] = "idle";
   render();
   if (selected() || hashId() === "scrie") window.scrollTo(0, 0);
 }
@@ -544,7 +859,7 @@ qEl.addEventListener("input", renderList);
 window.addEventListener("hashchange", route);
 
 render();
-loadPoems().then(route);
+Promise.all([loadPoems(), loadSection("semne")]).then(route);
 </script>
 </body>
 </html>
