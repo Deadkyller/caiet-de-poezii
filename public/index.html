@@ -135,6 +135,13 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
 .stage.has-image.tone-dark { color: #10151d; text-shadow: 0 1px 2px rgba(255, 255, 255, 0.45); }
 .stage.has-image.tone-dark .meta { color: rgba(16, 21, 29, 0.75); }
 
+.top-r { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 20px; }
+.adminlink { text-decoration: none; }
+.adminlink:hover, .adminlink[aria-current="page"] { color: var(--accent); }
+.admin-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.admin-row .card-title { margin: 0; font-size: 1.2rem; }
+.admin-row .meta { margin: 0; }
+.admin-note { color: var(--muted); max-width: 32em; margin: 0 0 24px; }
 .tabs { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: -14px 0 28px; }
 .tabs a {
   font-family: var(--font-util); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase;
@@ -172,7 +179,10 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
 <div class="wrap">
   <header class="top">
     <h1 class="brand">Caiet de poezii</h1>
-    <span class="count" id="count"></span>
+    <div class="top-r">
+      <span class="count" id="count"></span>
+      <a class="count adminlink" id="adminlink" href="#admin">Administrator</a>
+    </div>
   </header>
 
   <nav class="tabs" id="tabs" aria-label="Secțiuni">
@@ -208,6 +218,8 @@ var addEl = document.getElementById("add");
 var sec = document.getElementById("sec");
 var tabsEl = document.getElementById("tabs");
 
+var admin = false;
+var adminLinkEl = document.getElementById("adminlink");
 var poems = [];
 var loaded = false;
 var failed = false;
@@ -233,6 +245,24 @@ function metaText(p) { return [p.date, p.author].filter(Boolean).join(" · "); }
 function getAuthor() { try { return localStorage.getItem("caiet-autor") || ""; } catch (e) { return ""; } }
 function setAuthor(v) { try { localStorage.setItem("caiet-autor", v); } catch (e) {} }
 
+// Cerere de modificare: daca sesiunea de administrator a expirat, trimite la autentificare.
+async function authFetch(url, opts) {
+  var r = await fetch(url, opts);
+  if (r.status === 401) {
+    admin = false;
+    setTimeout(function () { go("admin"); }, 0);
+    throw new Error("auth");
+  }
+  return r;
+}
+
+async function loadMe() {
+  try {
+    var r = await fetch("/api/me", { cache: "no-store" });
+    if (r.ok) admin = !!(await r.json()).admin;
+  } catch (e) {}
+}
+
 async function loadPoems() {
   try {
     var r = await fetch(API, { cache: "no-store" });
@@ -249,7 +279,7 @@ function renderList() {
   var q = qEl.value.trim().toLowerCase();
   var cur = selected();
   listEl.textContent = "";
-  addEl.hidden = !loaded || failed;
+  addEl.hidden = !loaded || failed || !admin;
   countEl.textContent = loaded && !failed ? poems.length + (poems.length === 1 ? " poezie" : " poezii") : "";
 
   if (!loaded) { listEl.appendChild(el("li", "empty", "Se încarcă poeziile…")); return; }
@@ -408,7 +438,7 @@ function renderComposer(p) {
     try {
       var blob = await resizeToJpeg(f);
       imgStatus.textContent = "Se încarcă imaginea…";
-      var r = await fetch("/api/image", { method: "POST", headers: { "content-type": "image/jpeg" }, body: blob });
+      var r = await authFetch("/api/image", { method: "POST", headers: { "content-type": "image/jpeg" }, body: blob });
       if (r.status === 429) throw new Error("rate");
       if (!r.ok) throw new Error("http");
       imageId = (await r.json()).id;
@@ -436,7 +466,7 @@ function renderComposer(p) {
     err.textContent = "";
     save.disabled = true;
     try {
-      var r = await fetch(API, {
+      var r = await authFetch(API, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -471,7 +501,8 @@ function renderReader(p) {
   if (!p) {
     var msg = !loaded ? "Se încarcă poeziile…"
       : failed ? "Poeziile nu pot fi încărcate acum."
-      : "Caietul e gol. Apasă „Adaugă poezie” ca să scrii prima.";
+      : admin ? "Caietul e gol. Apasă „Adaugă poezie” ca să scrii prima."
+      : "Caietul e gol deocamdată.";
     reader.appendChild(el("p", "empty", msg));
     return;
   }
@@ -489,8 +520,8 @@ function renderReader(p) {
       mk.disabled = true;
       try {
         var r = marked
-          ? await fetch(MARKS_API + "?id=" + encodeURIComponent(p.id), { method: "DELETE" })
-          : await fetch(MARKS_API, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poemId: p.id, note: "", website: "" }) });
+          ? await authFetch(MARKS_API + "?id=" + encodeURIComponent(p.id), { method: "DELETE" })
+          : await authFetch(MARKS_API, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poemId: p.id, note: "", website: "" }) });
         if (r.status === 429) throw new Error("rate");
         if (!r.ok) throw new Error("http");
         deleteError = "";
@@ -512,7 +543,7 @@ function renderReader(p) {
     yes.addEventListener("click", async function () {
       yes.disabled = true;
       try {
-        var r = await fetch(API + "?id=" + encodeURIComponent(p.id), { method: "DELETE" });
+        var r = await authFetch(API + "?id=" + encodeURIComponent(p.id), { method: "DELETE" });
         if (r.status === 429) throw new Error("rate");
         if (!r.ok) throw new Error("http");
         confirmDelete = false;
@@ -529,7 +560,7 @@ function renderReader(p) {
     tools.appendChild(yes); tools.appendChild(no);
   }
   if (deleteError) tools.appendChild(el("span", "ask", deleteError));
-  reader.appendChild(tools);
+  if (admin) reader.appendChild(tools);
 
   var stage = el("div", "stage");
   if (p.image) {
@@ -667,7 +698,7 @@ function itemForm(name, item) {
     err.textContent = "";
     save.disabled = true;
     try {
-      var r = await fetch(cfg.api, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      var r = await authFetch(cfg.api, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       if (r.status === 429) throw new Error("rate");
       if (!r.ok) throw new Error("http");
       await loadSection(name);
@@ -683,7 +714,7 @@ function itemForm(name, item) {
 
 async function removeItem(api, name, id) {
   try {
-    var r = await fetch(api + "?id=" + encodeURIComponent(id), { method: "DELETE" });
+    var r = await authFetch(api + "?id=" + encodeURIComponent(id), { method: "DELETE" });
     if (r.status === 429) throw new Error("rate");
     if (!r.ok) throw new Error("http");
     secError = "";
@@ -734,7 +765,9 @@ function renderCollection(name) {
   });
   countEl.textContent = items.length + " " + (items.length === 1 ? cfg.one : cfg.many);
 
-  if (secEditing === "new") {
+  if (!admin) {
+    // doar citire
+  } else if (secEditing === "new") {
     sec.appendChild(itemForm(name, null));
   } else {
     var add = el("button", "btn", cfg.add); add.type = "button";
@@ -745,7 +778,7 @@ function renderCollection(name) {
   if (!items.length && secEditing !== "new") sec.appendChild(el("p", "empty", cfg.empty));
 
   items.forEach(function (it) {
-    if (secEditing === it.id) { sec.appendChild(itemForm(name, it)); return; }
+    if (admin && secEditing === it.id) { sec.appendChild(itemForm(name, it)); return; }
     var card = el("article", "card");
     card.appendChild(el("h3", "card-title", cfg.head(it)));
     var m = cfg.meta(it);
@@ -756,7 +789,7 @@ function renderCollection(name) {
       card.appendChild(a);
     }
     if (it.note) card.appendChild(el("p", "card-note", it.note));
-    card.appendChild(cardTools(name, it, cfg.api, "Editează", "Ștergi definitiv?", false));
+    if (admin) card.appendChild(cardTools(name, it, cfg.api, "Editează", "Ștergi definitiv?", false));
     sec.appendChild(card);
   });
 }
@@ -777,7 +810,7 @@ function markForm(m) {
     ev.preventDefault();
     save.disabled = true;
     try {
-      var r = await fetch(MARKS_API, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poemId: m.id, note: note.value.trim(), website: "" }) });
+      var r = await authFetch(MARKS_API, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poemId: m.id, note: note.value.trim(), website: "" }) });
       if (r.status === 429) throw new Error("rate");
       if (!r.ok) throw new Error("http");
       await loadSection("semne");
@@ -801,24 +834,96 @@ function renderMarks() {
   countEl.textContent = rows.length + (rows.length === 1 ? " semn" : " semne");
   if (secError) sec.appendChild(el("p", "err", secError));
   if (!rows.length) {
-    sec.appendChild(el("p", "empty", "Niciun semn de carte. Deschide o poezie și apasă „Pune semn de carte”."));
+    sec.appendChild(el("p", "empty", admin ? "Niciun semn de carte. Deschide o poezie și apasă „Pune semn de carte”." : "Niciun semn de carte încă."));
     return;
   }
   rows.forEach(function (x) {
-    if (secEditing === x.m.id) { sec.appendChild(markForm(x.m)); return; }
+    if (admin && secEditing === x.m.id) { sec.appendChild(markForm(x.m)); return; }
     var card = el("article", "card");
     var h = el("h3", "card-title");
     var a = el("a", null, x.p.title); a.href = "#p-" + x.p.id;
     h.appendChild(a); card.appendChild(h);
     if (metaText(x.p)) card.appendChild(el("p", "meta", metaText(x.p)));
     if (x.m.note) card.appendChild(el("p", "card-note", x.m.note));
-    card.appendChild(cardTools("semne", x.m, MARKS_API, x.m.note ? "Editează nota" : "Adaugă o notă", "", true));
+    if (admin) card.appendChild(cardTools("semne", x.m, MARKS_API, x.m.note ? "Editează nota" : "Adaugă o notă", "", true));
     sec.appendChild(card);
   });
 }
 
+function renderAdmin() {
+  countEl.textContent = "";
+  if (!admin) {
+    sec.appendChild(el("h2", "sec-title", "Administrator"));
+    sec.appendChild(el("p", "admin-note", "Doar administratorul poate adăuga, modifica și șterge. Ceilalți vizitatori pot doar citi."));
+    var form = el("form", "form");
+    var pw = el("input"); pw.type = "password"; pw.autocomplete = "current-password"; pw.maxLength = 200;
+    form.appendChild(field("a-pass", "Parola", pw));
+    var err = el("p", "err"); err.setAttribute("role", "alert"); form.appendChild(err);
+    var actions = el("div", "actions");
+    var go1 = el("button", "btn", "Intră"); go1.type = "submit";
+    actions.appendChild(go1); form.appendChild(actions);
+    form.addEventListener("submit", async function (ev) {
+      ev.preventDefault();
+      if (!pw.value) { err.textContent = "Scrie parola."; return; }
+      err.textContent = ""; go1.disabled = true;
+      try {
+        var r = await fetch("/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: pw.value }) });
+        if (r.status === 401) throw new Error("bad");
+        if (r.status === 429) throw new Error("many");
+        if (r.status === 503) throw new Error("conf");
+        if (!r.ok) throw new Error("http");
+        admin = true;
+        render();
+      } catch (e) {
+        go1.disabled = false;
+        err.textContent = e.message === "bad" ? "Parolă greșită."
+          : e.message === "many" ? "Prea multe încercări. Așteaptă 15 minute."
+          : e.message === "conf" ? "Parola de administrator nu este setată în Cloudflare."
+          : "Nu s-a putut face autentificarea. Încearcă din nou.";
+      }
+    });
+    sec.appendChild(form);
+    setTimeout(function () { pw.focus(); }, 0);
+    return;
+  }
+
+  sec.appendChild(el("h2", "sec-title", "Panou administrator"));
+  sec.appendChild(el("p", "admin-note", "Ești conectat. Tot ce adaugi, modifici sau ștergi apare imediat pe site, pentru toți vizitatorii."));
+  var top = el("div", "actions");
+  var addPoem = el("a", "btn", "Adaugă poezie"); addPoem.href = "#scrie";
+  var out = el("button", "btn ghost", "Deconectare"); out.type = "button";
+  out.addEventListener("click", async function () {
+    out.disabled = true;
+    try { await fetch("/api/logout", { method: "POST" }); } catch (e) {}
+    admin = false;
+    go("toate");
+  });
+  top.appendChild(addPoem); top.appendChild(out);
+  sec.appendChild(top);
+
+  var rows = [["Poezii", loaded && !failed ? String(poems.length) : "…", "#toate"]];
+  ["bibliografie", "poeti", "citate"].forEach(function (n) {
+    if (secState[n] === "idle") loadSection(n).then(render);
+    rows.push([SECTIONS[n].title, secState[n] === "ok" ? String(secData[n].length) : "…", "#" + n]);
+  });
+  rows.push(["Semne de carte", secState.semne === "ok" ? String(secData.semne.length) : "…", "#semne"]);
+  var box = el("div");
+  box.style.marginTop = "28px";
+  rows.forEach(function (r) {
+    var row = el("div", "admin-row");
+    var left = el("div");
+    left.appendChild(el("h3", "card-title", r[0]));
+    left.appendChild(el("p", "meta", r[1]));
+    var open = el("a", "btn ghost", "Deschide"); open.href = r[2];
+    row.appendChild(left); row.appendChild(open);
+    box.appendChild(row);
+  });
+  sec.appendChild(box);
+}
+
 function currentSection() {
   var h = hashId();
+  if (h === "admin") return "admin";
   return SECTION_NAMES.indexOf(h) > -1 ? h : "poezii";
 }
 
@@ -830,6 +935,7 @@ function setTabs(name) {
 
 function renderSection(name) {
   sec.textContent = "";
+  if (name === "admin") { renderAdmin(); return; }
   if (secState[name] === "idle") loadSection(name).then(render);
   if (name === "semne") renderMarks(); else renderCollection(name);
 }
@@ -837,6 +943,8 @@ function renderSection(name) {
 function render() {
   var s = currentSection();
   setTabs(s);
+  adminLinkEl.textContent = admin ? "Panou administrator" : "Administrator";
+  if (s === "admin") adminLinkEl.setAttribute("aria-current", "page"); else adminLinkEl.removeAttribute("aria-current");
   if (s !== "poezii") {
     main.hidden = true; sec.hidden = false;
     renderSection(s);
@@ -846,7 +954,7 @@ function render() {
   var h = hashId();
   var cur = selected();
   var ready = loaded && !failed;
-  var adding = h === "scrie" && ready;
+  var adding = h === "scrie" && ready && admin;
   var editing = editingId !== null && cur && cur.id === editingId;
   main.dataset.view = (adding || editing || cur) ? "poem" : "list";
   renderList();
@@ -862,7 +970,7 @@ function route() {
   secEditing = null;
   secConfirm = null;
   secError = "";
-  if (currentSection() !== "poezii") secState[currentSection()] = "idle";
+  if (SECTION_NAMES.indexOf(currentSection()) > -1) secState[currentSection()] = "idle";
   render();
   if (selected() || hashId() === "scrie") window.scrollTo(0, 0);
 }
@@ -871,7 +979,7 @@ qEl.addEventListener("input", renderList);
 window.addEventListener("hashchange", route);
 
 render();
-Promise.all([loadPoems(), loadSection("semne")]).then(route);
+Promise.all([loadMe(), loadPoems(), loadSection("semne")]).then(route);
 </script>
 </body>
 </html>

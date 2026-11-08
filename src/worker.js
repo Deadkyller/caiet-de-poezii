@@ -6,26 +6,70 @@
 //   /api/marks  - semne de carte (cate unul pe poezie)
 //   /api/quotes - citate preferate
 // Totul se salveaza in KV (binding: POEMS).
-// Oricine poate adauga, edita si sterge. Protectii: limita de ritm per adresa,
-// o copie de siguranta a poeziilor ("poems-backup") si imagini limitate ca marime.
+// Oricine poate citi; doar administratorul (parola in secretul ADMIN_PASSWORD) poate
+// adauga, edita si sterge. Se pastreaza copii de siguranta ("poems-backup" etc.).
 
 const KEY = "poems";
 const BACKUP_KEY = "poems-backup";
 const MAX_POEMS = 1000;
 const MAX_IMAGE_BYTES = 1500 * 1024;
-const ADD_WAIT_MS = 60 * 1000;     // o poezie noua pe minut
-const CHANGE_WAIT_MS = 5 * 1000;   // edit/stergere la 5 secunde
-const IMAGE_WAIT_MS = 10 * 1000;   // o imagine la 10 secunde
 const UPLOAD_TTL = 24 * 60 * 60;   // imaginea neasociata unei poezii dispare dupa 24 de ore
 const RETIRE_TTL = 7 * 24 * 60 * 60; // imaginea unei poezii sterse mai ramane 7 zile
-const ADD_ITEM_WAIT_MS = 10 * 1000; // o intrare noua (carte, poet, semn) la 10 secunde
 const IMAGE_ID = /^[a-f0-9]{16}$/;
 
-function json(data, status) {
+function json(data, status, extra) {
   return new Response(JSON.stringify(data), {
     status: status || 200,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...(extra || {}) },
   });
+}
+
+// ---- Administrator ----
+// Parola este secretul ADMIN_PASSWORD din Cloudflare (nu se afla in cod).
+// Dupa autentificare, serverul da un cookie semnat (HttpOnly) valabil 30 de zile.
+const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_LOGIN_FAILS = 8;
+const enc = new TextEncoder();
+
+function hmacKey(env) {
+  return crypto.subtle.importKey("raw", enc.encode("caiet:" + env.ADMIN_PASSWORD), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+}
+function toHex(buf) {
+  return Array.from(new Uint8Array(buf), (x) => x.toString(16).padStart(2, "0")).join("");
+}
+function fromHex(h) {
+  return new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
+}
+function cookie(value, maxAge) {
+  return "admin=" + value + "; Path=/; Max-Age=" + maxAge + "; HttpOnly; Secure; SameSite=Strict";
+}
+
+async function isAdmin(request, env) {
+  if (!env.ADMIN_PASSWORD) return false;
+  const m = (request.headers.get("cookie") || "").match(/(?:^|;\s*)admin=([0-9]{1,16})\.([a-f0-9]{64})/);
+  if (!m || Number(m[1]) < Date.now()) return false;
+  return crypto.subtle.verify("HMAC", await hmacKey(env), fromHex(m[2]), enc.encode(m[1]));
+}
+
+async function handleLogin(request, env) {
+  if (request.method !== "POST") return json({ error: "metoda nepermisa" }, 405);
+  if (!env.ADMIN_PASSWORD) return json({ error: "neconfigurat" }, 503);
+  const ip = request.headers.get("cf-connecting-ip") || "anon";
+  const failKey = "rl:loginfail:" + ip;
+  const fails = Number(await env.POEMS.get(failKey)) || 0;
+  if (fails >= MAX_LOGIN_FAILS) return json({ error: "prea multe incercari" }, 429);
+  let body;
+  try { body = await request.json(); } catch (e) { return json({ error: "cerere invalida" }, 400); }
+  const key = await hmacKey(env);
+  const real = await crypto.subtle.sign("HMAC", key, enc.encode("pw:" + env.ADMIN_PASSWORD));
+  const ok = await crypto.subtle.verify("HMAC", key, real, enc.encode("pw:" + String((body && body.password) || "").slice(0, 200)));
+  if (!ok) {
+    await env.POEMS.put(failKey, String(fails + 1), { expirationTtl: 900 });
+    return json({ error: "parola gresita" }, 401);
+  }
+  const exp = String(Date.now() + SESSION_MS);
+  const sig = toHex(await crypto.subtle.sign("HMAC", key, enc.encode(exp)));
+  return json({ admin: true }, 200, { "set-cookie": cookie(exp + "." + sig, SESSION_MS / 1000) });
 }
 
 async function loadRaw(env) {
@@ -49,16 +93,6 @@ function clean(body) {
   const tone = body.tone === "dark" ? "dark" : "light";
   if (!title || !text.trim()) return null;
   return { title, author, date, text, tone };
-}
-
-// Intoarce true daca adresa a facut deja o actiune de acest fel prea recent.
-async function tooSoon(env, request, kind, waitMs) {
-  const ip = request.headers.get("cf-connecting-ip") || "anon";
-  const key = "rl:" + kind + ":" + ip;
-  const last = Number(await env.POEMS.get(key)) || 0;
-  if (Date.now() - last < waitMs) return true;
-  await env.POEMS.put(key, String(Date.now()), { expirationTtl: 120 });
-  return false;
 }
 
 // Imaginea devine permanenta (se scoate expirarea).
@@ -141,11 +175,9 @@ async function handleCollection(name, request, env) {
     }
 
     if (item) {
-      if (await tooSoon(env, request, "change:" + name, CHANGE_WAIT_MS)) return json({ error: "prea repede" }, 429);
       Object.assign(item, fields);
     } else {
       if (items.length >= cfg.max) return json({ error: "lista este plina" }, 400);
-      if (await tooSoon(env, request, "add:" + name, ADD_ITEM_WAIT_MS)) return json({ error: "prea repede" }, 429);
       item = { id: cfg.byPoem ? fields.poemId : crypto.randomUUID().slice(0, 8), ts: Date.now(), ...fields };
       items.push(item);
     }
@@ -156,7 +188,6 @@ async function handleCollection(name, request, env) {
 
   if (request.method === "DELETE") {
     const id = new URL(request.url).searchParams.get("id");
-    if (await tooSoon(env, request, "change:" + name, CHANGE_WAIT_MS)) return json({ error: "prea repede" }, 429);
     await env.POEMS.put(backupKey, raw);
     await env.POEMS.put(name, JSON.stringify(parse(raw).filter((i) => i.id !== id)));
     return json({ ok: true });
@@ -187,7 +218,6 @@ async function handlePoems(request, env) {
     if (body.id) {
       poem = poems.find((p) => p.id === body.id);
       if (!poem) return json({ error: "poezia nu exista" }, 404);
-      if (await tooSoon(env, request, "change", CHANGE_WAIT_MS)) return json({ error: "prea repede" }, 429);
       const oldImage = poem.image || "";
       if (wantImage && wantImage !== oldImage && !(await keepImage(env, wantImage))) {
         return json({ error: "imaginea nu mai exista" }, 400);
@@ -197,7 +227,6 @@ async function handlePoems(request, env) {
       if (oldImage && oldImage !== wantImage) await retireImage(env, oldImage);
     } else {
       if (poems.length >= MAX_POEMS) return json({ error: "caietul este plin" }, 400);
-      if (await tooSoon(env, request, "add", ADD_WAIT_MS)) return json({ error: "prea repede" }, 429);
       if (wantImage && !(await keepImage(env, wantImage))) return json({ error: "imaginea nu mai exista" }, 400);
       poem = { id: crypto.randomUUID().slice(0, 8), ts: Date.now(), ...fields, image: wantImage };
       poems.push(poem);
@@ -209,7 +238,6 @@ async function handlePoems(request, env) {
 
   if (request.method === "DELETE") {
     const id = new URL(request.url).searchParams.get("id");
-    if (await tooSoon(env, request, "change", CHANGE_WAIT_MS)) return json({ error: "prea repede" }, 429);
     const raw = await loadRaw(env);
     const poems = parse(raw);
     const gone = poems.find((p) => p.id === id);
@@ -254,7 +282,6 @@ async function handleImage(request, env, ctx) {
   }
 
   if (request.method === "POST") {
-    if (await tooSoon(env, request, "img", IMAGE_WAIT_MS)) return json({ error: "prea repede" }, 429);
     const buf = await request.arrayBuffer();
     if (buf.byteLength < 100 || buf.byteLength > MAX_IMAGE_BYTES) return json({ error: "imagine prea mare" }, 413);
     const b = new Uint8Array(buf, 0, 3);
@@ -271,11 +298,22 @@ async function handleImage(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const coll = url.pathname.match(/^\/api\/(books|poets|quotes|marks)$/);
-    if (url.pathname === "/api/poems" || url.pathname === "/api/image" || coll) {
+    const path = url.pathname;
+    const coll = path.match(/^\/api\/(books|poets|quotes|marks)$/);
+
+    if (path === "/api/me") return json({ admin: await isAdmin(request, env), configured: !!env.ADMIN_PASSWORD });
+    if (path === "/api/logout") return json({ admin: false }, 200, { "set-cookie": cookie("", 0) });
+    if (path === "/api/login") {
       if (!env.POEMS) return json({ error: "KV lipseste" }, 500);
+      return handleLogin(request, env);
+    }
+
+    if (path === "/api/poems" || path === "/api/image" || coll) {
+      if (!env.POEMS) return json({ error: "KV lipseste" }, 500);
+      // Citirea e publica; orice modificare cere administratorul.
+      if (request.method !== "GET" && !(await isAdmin(request, env))) return json({ error: "doar administratorul" }, 401);
       if (coll) return handleCollection(coll[1], request, env);
-      return url.pathname === "/api/poems" ? handlePoems(request, env) : handleImage(request, env, ctx);
+      return path === "/api/poems" ? handlePoems(request, env) : handleImage(request, env, ctx);
     }
     return env.ASSETS.fetch(request);
   },
