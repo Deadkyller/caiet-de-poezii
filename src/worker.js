@@ -4,6 +4,7 @@
 //   /api/books  - bibliografie
 //   /api/poets  - poeti preferati
 //   /api/marks  - semne de carte (cate unul pe poezie)
+//   /api/quotes - citate preferate
 // Totul se salveaza in KV (binding: POEMS).
 // Oricine poate adauga, edita si sterge. Protectii: limita de ritm per adresa,
 // o copie de siguranta a poeziilor ("poems-backup") si imagini limitate ca marime.
@@ -93,6 +94,12 @@ function cleanPoet(b) {
   return { name, years: text(b.years, 40), note: text(b.note, 2000) };
 }
 
+function cleanQuote(b) {
+  const quote = text(b.text, 800);
+  if (!quote) return null;
+  return { text: quote, author: text(b.author, 80), source: text(b.source, 150) };
+}
+
 function cleanMark(b) {
   const poemId = String(b.poemId || "");
   if (!/^[a-z0-9-]{1,40}$/i.test(poemId)) return null;
@@ -102,6 +109,7 @@ function cleanMark(b) {
 const COLLECTIONS = {
   books: { max: 500, clean: cleanBook },
   poets: { max: 300, clean: cleanPoet },
+  quotes: { max: 1000, clean: cleanQuote },
   marks: { max: 1000, clean: cleanMark, byPoem: true }, // id-ul semnului = id-ul poeziei
 };
 
@@ -263,7 +271,7 @@ async function handleImage(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const coll = url.pathname.match(/^\/api\/(books|poets|marks)$/);
+    const coll = url.pathname.match(/^\/api\/(books|poets|quotes|marks)$/);
     if (url.pathname === "/api/poems" || url.pathname === "/api/image" || coll) {
       if (!env.POEMS) return json({ error: "KV lipseste" }, 500);
       if (coll) return handleCollection(coll[1], request, env);

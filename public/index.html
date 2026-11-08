@@ -179,6 +179,7 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
     <a href="#toate" data-s="poezii">Poezii</a>
     <a href="#bibliografie" data-s="bibliografie">Bibliografie</a>
     <a href="#poeti" data-s="poeti">Poeți preferați</a>
+    <a href="#citate" data-s="citate">Citate preferate</a>
     <a href="#semne" data-s="semne">Semne de carte</a>
   </nav>
 
@@ -573,7 +574,7 @@ function renderReader(p) {
   reader.appendChild(pager);
 }
 
-var SECTION_NAMES = ["bibliografie", "poeti", "semne"];
+var SECTION_NAMES = ["bibliografie", "poeti", "citate", "semne"];
 var MARKS_API = "/api/marks";
 var SECTIONS = {
   bibliografie: {
@@ -599,10 +600,21 @@ var SECTIONS = {
     ],
     head: function (i) { return i.name; },
     meta: function (i) { return i.years || ""; }
+  },
+  citate: {
+    api: "/api/quotes", title: "Citate preferate", add: "Adaugă un citat", empty: "Niciun citat încă.",
+    one: "citat", many: "citate", sortKey: "text",
+    fields: [
+      { k: "text", label: "Citatul", max: 800, area: true, req: true },
+      { k: "author", label: "Autor", max: 80 },
+      { k: "source", label: "Sursa (carte, poezie)", max: 150 }
+    ],
+    head: function (i) { return "„" + i.text + "”"; },
+    meta: function (i) { return [i.author, i.source].filter(Boolean).join(" · "); }
   }
 };
-var secData = { bibliografie: [], poeti: [], semne: [] };
-var secState = { bibliografie: "idle", poeti: "idle", semne: "idle" };
+var secData = { bibliografie: [], poeti: [], citate: [], semne: [] };
+var secState = { bibliografie: "idle", poeti: "idle", citate: "idle", semne: "idle" };
 var secEditing = null;
 var secConfirm = null;
 var secError = "";
