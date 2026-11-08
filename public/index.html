@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Caiet de poezii</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&family=IBM+Plex+Mono:wght@400&display=swap">
@@ -45,6 +46,8 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
   gap: 12px 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); margin-bottom: 32px;
 }
 .brand { font-family: var(--font-display); font-style: italic; font-weight: 400; font-size: 2.1rem; margin: 0; text-wrap: balance; }
+.brand-link { display: inline-flex; align-items: center; gap: 14px; text-decoration: none; color: inherit; }
+.logo { flex: none; display: block; }
 .count { font-family: var(--font-util); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 
 .shell { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 56px; }
@@ -171,6 +174,7 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
   main[data-view="poem"] .index-col { display: none; }
   .back { display: inline-block; }
   .brand { font-size: 1.7rem; }
+  .logo { width: 36px; height: 36px; }
   .poem { font-size: 1.2rem; }
 }
 </style>
@@ -178,7 +182,16 @@ a:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visib
 <body>
 <div class="wrap">
   <header class="top">
-    <h1 class="brand">Caiet de poezii</h1>
+    <h1 class="brand">
+      <a class="brand-link" href="#toate">
+        <svg class="logo" viewBox="0 0 40 40" width="44" height="44" aria-hidden="true" focusable="false">
+          <rect x="7" y="4" width="26" height="32" rx="3" fill="var(--accent)"/>
+          <path d="M13 17h10M13 23h14M13 29h8" stroke="var(--bg)" stroke-width="2" stroke-linecap="round" fill="none"/>
+          <path d="M24 4h6v15l-3-2.8L24 19z" fill="#c9573b"/>
+        </svg>
+        <span>Caiet de poezii</span>
+      </a>
+    </h1>
     <div class="top-r">
       <span class="count" id="count"></span>
       <a class="count adminlink" id="adminlink" href="#admin">Administrator</a>
